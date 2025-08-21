@@ -10,21 +10,21 @@ import comfy.model_management
 import comfy.utils
 import comfy.sd
 import comfy.lora
-
-# Version compatibility checks
-COMFY_VERSION_COMPATIBLE = True
 try:
-    # Check for different ComfyUI API versions
-    if hasattr(comfy.lora, 'load_lora_for_models'):
-        LORA_LOAD_FUNCTION = comfy.lora.load_lora_for_models
-    elif hasattr(comfy.sd, 'load_lora_for_models'):
-        LORA_LOAD_FUNCTION = comfy.sd.load_lora_for_models
-    else:
-        # Use basic load_lora function
-        LORA_LOAD_FUNCTION = None
-except Exception as e:
-    print(f"ComfyUI version compatibility check: {e}")
-    LORA_LOAD_FUNCTION = None
+    import comfy.lora_convert
+except ImportError:
+    print("Warning: comfy.lora_convert not available")
+
+# Pre-compile regex patterns for performance
+import re
+BLOCK_PATTERNS = [
+    re.compile(r'double_blocks?[_.]?(\d+)'),
+    re.compile(r'single_blocks?[_.]?(\d+)'),
+    re.compile(r'blocks?[_.]?(\d+)'),
+    re.compile(r'input_blocks[_.]?(\d+)'),
+    re.compile(r'output_blocks[_.]?(\d+)'),
+    re.compile(r'layer[_.]?(\d+)')
+]
 
 class NunchakuHierarchicalLoRALoader:
     """
@@ -588,37 +588,43 @@ class NunchakuHierarchicalLoRALoader:
                 )
             else:
                 # Apply uniform weight
-                uniform_weight = np.mean(weights)
-                weighted_lora = {}
-                # Apply weights with memory efficiency
-                for k, v in lora_data.items():
-                    weighted_lora[k] = v * uniform_weight
-                    # Clear original tensor if no longer needed
-                    if k in weighted_lora:
-                        del lora_data[k]
+                uniform_weight = np.mean(weights) if len(weights) > 0 else 1.0
+                # Create new dict with weighted values (don't modify during iteration)
+                weighted_lora = {k: v * uniform_weight for k, v in lora_data.items()}
             
-            # Load into model with proper architecture handling
-            if architecture['has_native_lora']:
-                # Try native LoRA loading first
-                try:
-                    if hasattr(model, 'load_lora_weights'):
-                        # Direct model method
-                        model_lora = model.load_lora_weights(weighted_lora, strength_model)
-                        clip_lora = clip  # CLIP handled separately in some cases
-                    else:
-                        # Use ComfyUI's LoRA loader with weighted tensors
-                        model_lora, clip_lora = comfy.lora.load_lora(
-                            weighted_lora, model, clip, strength_model, strength_clip
-                        )
-                except Exception as native_error:
-                    print(f"Native loading failed: {native_error}, using standard method")
-                    model_lora, clip_lora = comfy.lora.load_lora(
-                        weighted_lora, model, clip, strength_model, strength_clip
-                    )
-            else:
-                # Standard ComfyUI LoRA loading with weighted tensors
-                model_lora, clip_lora = comfy.lora.load_lora(
-                    weighted_lora, model, clip, strength_model, strength_clip
+            # Load into model - Try to use weighted tensors if possible
+            try:
+                # Create key maps for proper LoRA application
+                key_map = {}
+                if model is not None and hasattr(model, 'model'):
+                    key_map = comfy.lora.model_lora_keys_unet(model.model, key_map)
+                if clip is not None and hasattr(clip, 'cond_stage_model'):
+                    key_map = comfy.lora.model_lora_keys_clip(clip.cond_stage_model, key_map)
+                
+                # Convert LoRA format if converter is available
+                if hasattr(comfy, 'lora_convert'):
+                    weighted_lora = comfy.lora_convert.convert_lora(weighted_lora)
+                
+                # Load the weighted LoRA using proper API
+                loaded = comfy.lora.load_lora(weighted_lora, key_map)
+                if not loaded:
+                    raise ValueError("LoRA loading returned empty result")
+                
+                # Apply to model
+                model_lora = model.clone() if model else model
+                if model_lora and loaded:
+                    model_lora.add_patches(loaded, strength_model)
+                
+                # Apply to CLIP
+                clip_lora = clip.clone() if clip else clip
+                if clip_lora and loaded:
+                    clip_lora.add_patches(loaded, strength_clip)
+                    
+            except Exception as e:
+                # If weighted loading fails, fall back to standard path-based loading
+                print(f"Weighted loading failed ({e}), using standard path loading")
+                model_lora, clip_lora = comfy.sd.load_lora_for_models(
+                    model, clip, lora_path, strength_model, strength_clip
                 )
             
             # Memory cleanup for large models
@@ -633,11 +639,10 @@ class NunchakuHierarchicalLoRALoader:
                 # Load raw LoRA data
                 lora_data = comfy.utils.load_torch_file(lora_path, safe_load=True)
                 # Apply uniform weight as fallback
-                avg_weight = np.mean(weights) if weights else 1.0
-                weighted_lora = {k: v * avg_weight for k, v in lora_data.items()}
-                # Load weighted tensors
-                model_lora, clip_lora = comfy.lora.load_lora(
-                    weighted_lora, model, clip, strength_model, strength_clip
+                avg_weight = np.mean(weights) if len(weights) > 0 else 1.0
+                # Use path-based loading with adjusted strengths
+                model_lora, clip_lora = comfy.sd.load_lora_for_models(
+                    model, clip, lora_path, strength_model * avg_weight, strength_clip * avg_weight
                 )
             except Exception as fallback_error:
                 # Last resort: use alternative loading method
@@ -649,22 +654,16 @@ class NunchakuHierarchicalLoRALoader:
                         model_lora, clip_lora = comfy.sd.load_lora_for_models(
                             model, clip, lora_path, strength_model, strength_clip
                         )
-                    except:
-                        # If this also fails, just use basic load_lora
-                        model_lora, clip_lora = comfy.lora.load_lora(
-                            lora_data, model, clip, final_strength_model, final_strength_clip
-                        )
+                    except Exception as sd_error:
+                        # If this also fails, return original model/clip
+                        print(f"All LoRA loading methods failed: {sd_error}")
+                        model_lora = model
+                        clip_lora = clip
                 else:
-                    # Most basic fallback - reload and apply with basic strength
-                    print("Using basic LoRA application")
-                    lora_data = comfy.utils.load_torch_file(lora_path, safe_load=True)
-                    # Apply average weight to all tensors
-                    avg_weight = np.mean(weights) if weights else 1.0
-                    final_strength_model = strength_model * avg_weight
-                    final_strength_clip = strength_clip * avg_weight
-                    model_lora, clip_lora = comfy.lora.load_lora(
-                        lora_data, model, clip, final_strength_model, final_strength_clip
-                    )
+                    # Most basic fallback - return original
+                    print("No compatible LoRA loading method found")
+                    model_lora = model
+                    clip_lora = clip
         
         # Generate info text
         if verbose:
