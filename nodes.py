@@ -11,6 +11,21 @@ import comfy.utils
 import comfy.sd
 import comfy.lora
 
+# Version compatibility checks
+COMFY_VERSION_COMPATIBLE = True
+try:
+    # Check for different ComfyUI API versions
+    if hasattr(comfy.lora, 'load_lora_for_models'):
+        LORA_LOAD_FUNCTION = comfy.lora.load_lora_for_models
+    elif hasattr(comfy.sd, 'load_lora_for_models'):
+        LORA_LOAD_FUNCTION = comfy.sd.load_lora_for_models
+    else:
+        # Use basic load_lora function
+        LORA_LOAD_FUNCTION = None
+except Exception as e:
+    print(f"ComfyUI version compatibility check: {e}")
+    LORA_LOAD_FUNCTION = None
+
 class NunchakuHierarchicalLoRALoader:
     """
     Advanced LoRA loader with per-block weight control. Apply different LoRA strengths
@@ -624,12 +639,32 @@ class NunchakuHierarchicalLoRALoader:
                 model_lora, clip_lora = comfy.lora.load_lora(
                     weighted_lora, model, clip, strength_model, strength_clip
                 )
-            except:
-                # Last resort: standard loading
-                print("Final fallback to standard LoRA loading")
-                model_lora, clip_lora = comfy.lora.load_lora_for_models(
-                    model, clip, lora_path, strength_model, strength_clip
-                )
+            except Exception as fallback_error:
+                # Last resort: use alternative loading method
+                print(f"Final fallback: {fallback_error}")
+                # Check what's available in comfy module
+                if hasattr(comfy.sd, 'load_lora_for_models'):
+                    # Try comfy.sd.load_lora_for_models
+                    try:
+                        model_lora, clip_lora = comfy.sd.load_lora_for_models(
+                            model, clip, lora_path, strength_model, strength_clip
+                        )
+                    except:
+                        # If this also fails, just use basic load_lora
+                        model_lora, clip_lora = comfy.lora.load_lora(
+                            lora_data, model, clip, final_strength_model, final_strength_clip
+                        )
+                else:
+                    # Most basic fallback - reload and apply with basic strength
+                    print("Using basic LoRA application")
+                    lora_data = comfy.utils.load_torch_file(lora_path, safe_load=True)
+                    # Apply average weight to all tensors
+                    avg_weight = np.mean(weights) if weights else 1.0
+                    final_strength_model = strength_model * avg_weight
+                    final_strength_clip = strength_clip * avg_weight
+                    model_lora, clip_lora = comfy.lora.load_lora(
+                        lora_data, model, clip, final_strength_model, final_strength_clip
+                    )
         
         # Generate info text
         if verbose:
