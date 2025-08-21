@@ -1,0 +1,55 @@
+[project]
+name = "ComfyUI-LoRABlockWeight"
+version = "1.0.0"
+description = "Advanced LoRA loader with per-block weight control for fine-grained influence over different model layers in ComfyUI"
+authors = [
+    { name = "ComfyUI-NunchakuHierarchicalLoRA Contributors" }
+]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = [
+    "comfyui",
+    "lora",
+    "block-weight",
+    "flux",
+    "nunchaku",
+    "stable-diffusion",
+    "ai-art",
+    "machine-learning",
+    "deep-learning"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Multimedia :: Graphics"
+]
+
+dependencies = [
+    "torch>=2.0.0",
+    "numpy>=1.19.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/bhvbhushan/ComfyUI-LoRABlockWeight"
+Repository = "https://github.com/bhvbhushan/ComfyUI-LoRABlockWeight"
+Issues = "https://github.com/bhvbhushan/ComfyUI-LoRABlockWeight/issues"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["."]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "presets/*.json"]

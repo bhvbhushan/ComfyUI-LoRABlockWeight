@@ -1,0 +1,53 @@
+{
+  "name": "ComfyUI-LoRABlockWeight",
+  "display_name": "LoRA Block Weight Loader",
+  "description": "Advanced LoRA loader with per-block weight control. Apply different LoRA strengths to specific transformer blocks for fine-grained control over model behavior. Compatible with Flux, Nunchaku, and standard models.",
+  "author": "bhvbhushan",
+  "version": "1.0.0",
+  "reference": "https://github.com/bhvbhushan/ComfyUI-LoRABlockWeight",
+  "files": [
+    "https://github.com/bhvbhushan/ComfyUI-LoRABlockWeight"
+  ],
+  "install_type": "git-clone",
+  "tags": [
+    "lora",
+    "block-weight",
+    "flux",
+    "nunchaku",
+    "per-block",
+    "model-loading",
+    "advanced"
+  ],
+  "dependencies": [],
+  "node_list": [
+    "NunchakuHierarchicalLoRALoader",
+    "HierarchicalLoRAWeightEditor"
+  ],
+  "requirements": {
+    "comfyui": ">=0.0.1",
+    "torch": ">=2.0.0",
+    "numpy": ">=1.19.0"
+  },
+  "conflicts": [],
+  "models": [],
+  "custom_nodes": {
+    "NunchakuHierarchicalLoRALoader": {
+      "category": "loaders/nunchaku",
+      "input_types": {
+        "required": ["model", "clip", "lora_name", "strength_model", "strength_clip"],
+        "optional": ["block_weights", "weight_mode", "interpolation_start", "interpolation_end", "interpolation_curve", "block_range", "normalize_weights", "preserve_mean", "verbose", "preset"]
+      },
+      "output_types": ["MODEL", "CLIP", "STRING"],
+      "description": "Load LoRA with hierarchical block weight control for Nunchaku/Flux models"
+    },
+    "HierarchicalLoRAWeightEditor": {
+      "category": "loaders/nunchaku",
+      "input_types": {
+        "required": ["total_blocks", "pattern", "amplitude", "offset", "frequency", "phase"],
+        "optional": ["custom_expression", "visualize"]
+      },
+      "output_types": ["STRING", "STRING"],
+      "description": "Generate and visualize weight patterns for hierarchical LoRA loading"
+    }
+  }
+}
