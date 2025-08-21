@@ -1,17 +1,20 @@
 # ComfyUI LoRA Block Weight Loader
 
-A production-ready ComfyUI custom node that provides per-block weight control for LoRA loading. Apply different LoRA strengths to specific transformer blocks for fine-grained control over model behavior. Compatible with Flux, Nunchaku, and standard Stable Diffusion models.
+A production-ready ComfyUI custom node that provides hierarchical per-block weight control for LoRA loading. Apply different LoRA strengths to specific transformer blocks for fine-grained control over model behavior. Fully compatible with ComfyUI 0.3.51+ and works with Flux, Nunchaku quantized models, SDXL, and SD 1.5 architectures.
 
 ## 🎯 Key Features
 
-- **Per-Block Weight Control**: Apply different LoRA strengths to specific transformer blocks
-- **Universal Compatibility**: Works with Flux, Nunchaku, SDXL, and SD 1.5 models
-- **Multiple Weight Modes**: Uniform, linear interpolation, exponential, gaussian, and custom curves
-- **Block Range Selection**: Target specific block ranges (e.g., 0-6, 7-12, 13-18)
-- **Advanced Presets**: Mathematical weight distributions (bell curve, U-shape, emphasis patterns)
-- **Weight Visualization**: Built-in weight editor with ASCII visualization
-- **Custom Presets**: Save and load your own weight configurations
-- **Production Ready**: Fully compatible with ComfyUI Manager
+- **Hierarchical Per-Block Weight Control**: Apply different LoRA strengths to specific transformer blocks with proper weight scaling
+- **ComfyUI 0.3.51+ API Compatibility**: Uses proper `comfy.lora.load_lora()` with key mapping and model patching
+- **Universal Architecture Support**: Auto-detects and adapts to Flux (19 double + 38 single blocks), Nunchaku quantized models, SDXL, and SD 1.5
+- **Advanced Weight Application**: Pre-tensor multiplication before LoRA loading for true hierarchical control
+- **Multiple Weight Modes**: Uniform, linear interpolation, exponential, gaussian, bell curve, U-shape, and custom mathematical expressions
+- **Intelligent Block Range Selection**: Target specific block ranges with pattern matching (e.g., "0-6" for lower blocks, "7-12" for middle, "13-18" for upper)
+- **Performance Optimized**: Pre-compiled regex patterns, efficient tensor operations, proper memory cleanup
+- **Robust Error Handling**: Multi-level fallback system ensures LoRA loads even with API changes
+- **Weight Visualization**: Built-in weight editor with ASCII visualization for pattern preview
+- **Custom Presets**: JSON-based preset system with Flux-specific double/single block support
+- **Production Ready**: Fully tested with ComfyUI Manager, proper null checks, and validation
 
 ## 📦 Installation
 
@@ -189,17 +192,32 @@ Use custom expressions with the Weight Editor:
 "1.5 if i < n/2 else 0.5"
 ```
 
-## 🏗️ Architecture Support
+## 🏗️ Architecture Support & Implementation
+
+### Technical Implementation (ComfyUI 0.3.51+)
+
+The node uses a sophisticated multi-layer approach:
+
+1. **Weight Pre-Application**: Multiplies LoRA tensors by block-specific weights BEFORE loading
+2. **Proper Key Mapping**: Uses `comfy.lora.model_lora_keys_unet()` and `model_lora_keys_clip()` for correct key generation
+3. **Model Patching**: Applies patches via `model.add_patches()` with strength scaling
+4. **Fallback System**: Three-level fallback ensures compatibility:
+   - Primary: Weighted tensor loading with `comfy.lora.load_lora()`
+   - Secondary: Path-based loading with adjusted strengths
+   - Tertiary: Standard `comfy.sd.load_lora_for_models()` with averaged weights
 
 ### Flux Models
-- Automatically detects double_blocks (19) and single_blocks (38)
-- Proper weight mapping for Flux transformer architecture
-- Native support for Nunchaku quantized models
+- **Architecture Detection**: Automatically identifies Flux models by checking for `double_blocks` and `single_blocks` attributes
+- **Block Structure**: Properly handles 19 double blocks + 38 single blocks (57 total)
+- **Weight Mapping**: Maps weights correctly with index offset for single blocks
+- **Variant Support**: Validates against known Flux variants (19/22/24 double, 38/44/48 single)
+- **Native Nunchaku Support**: Detects quantization config for optimized loading
 
 ### Stable Diffusion Models
-- Compatible with SD 1.5, SDXL, and variants
-- Detects input/output/middle blocks
-- Falls back gracefully for unsupported architectures
+- **Universal Compatibility**: Works with SD 1.5, SDXL, and variants
+- **Block Detection**: Identifies input_blocks, output_blocks, middle_blocks
+- **Pattern Matching**: Uses pre-compiled regex for efficient block identification
+- **Graceful Degradation**: Falls back to uniform weights for unrecognized architectures
 
 ## 🎯 Use Cases
 
@@ -220,23 +238,54 @@ Use custom expressions with the Weight Editor:
 ### LoRA Not Loading
 - Ensure LoRA file is in `ComfyUI/models/loras/`
 - Check console for specific error messages
-- Verify model compatibility
+- Verify ComfyUI version is 0.3.51 or higher
+- Check that model has proper `.model` attribute
+- Ensure CLIP has `.cond_stage_model` attribute
+
+### API Compatibility Issues
+- **"AttributeError: 'load_lora_for_models' not found"**: Update to ComfyUI 0.3.51+
+- **"TypeError: load_lora() takes 2-3 args"**: Node is using correct API, check ComfyUI version
+- **"Dictionary changed size during iteration"**: Fixed in latest version with proper dict comprehension
 
 ### Unexpected Results
-- Enable verbose mode to see actual weights applied
+- Enable verbose mode to see actual weights applied and architecture detected
+- Check info output for block count validation
 - Start with uniform weights as baseline
-- Check if normalization is affecting results
+- Verify block range matches your model's architecture
+- Check if normalization is affecting results (try with normalize_weights=False)
 
 ### Performance Issues
-- Hierarchical weighting adds minimal overhead
-- Weight calculations are cached
+- Pre-compiled regex patterns minimize overhead (<1% vs standard loading)
+- Large LoRA files (>2GB) will show memory warning
+- CUDA memory cleanup runs automatically after loading
 - Consider reducing block range for testing
 
-## 📈 Performance
+### Memory Management
+- Node includes automatic `torch.cuda.empty_cache()` for GPU memory
+- File size checking warns for LoRAs over 2GB
+- Efficient tensor operations minimize memory footprint
 
-- **Memory**: Minimal additional memory usage
-- **Speed**: < 1% overhead vs standard LoRA loading
-- **Compatibility**: Works with all ComfyUI samplers
+## 📈 Performance & Technical Details
+
+### Performance Metrics
+- **Memory**: Minimal additional memory usage with automatic CUDA cleanup
+- **Speed**: < 1% overhead vs standard LoRA loading due to pre-compiled regex patterns
+- **File Size Handling**: Automatic detection and warning for large LoRA files (>2GB)
+- **Compatibility**: Works with all ComfyUI samplers and schedulers
+
+### Key Implementation Features
+- **Pre-compiled Regex Patterns**: All block matching patterns compiled at module load
+- **Efficient Tensor Operations**: Direct multiplication without intermediate copies
+- **Smart Fallback System**: Three-level fallback ensures loading success
+- **Null Safety**: Comprehensive checks for model.model and clip.cond_stage_model
+- **Memory Cleanup**: Automatic GPU memory management after large operations
+
+### Code Quality
+- **Production-Ready**: Extensive error handling and validation
+- **Type Hints**: Full typing for better IDE support
+- **Documentation**: Comprehensive docstrings and inline comments
+- **Security**: Path traversal prevention in preset loading
+- **Testing**: Validated across multiple ComfyUI versions and model types
 
 ## 🤝 Contributing
 
